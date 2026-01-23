@@ -33,13 +33,17 @@ class EBSMergerCLI:
         self.output_dir = Path(output_dir)
         self.threshold = threshold
         
-        # 初始化组件
+        # 初始化组件（始终使用AI）
         self.loader = DataLoader()
         self.grouper = IFGrouper()
         self.calculator = SimilarityCalculator()
         self.merge_grouper = MergeGrouper()
-        self.result_generator = ResultGenerator()
+        self.result_generator = ResultGenerator(use_ai=True)
         self.template_filler = TemplateFiller()
+        
+        # 初始化AI分类器
+        from ebs_merger.ai_classifier import AIClassifier
+        self.classifier = AIClassifier()
     
     def run(self):
         """执行完整的分析和合并流程"""
@@ -47,24 +51,24 @@ class EBSMergerCLI:
             # 确保输出目录存在
             self.output_dir.mkdir(parents=True, exist_ok=True)
             
-            # 打印启动信息
+            # 起動情報の表示
             print("=" * 60)
-            print("开始批量分析EBS设计书...")
+            print("EBS設計書の一括分析を開始します（AI使用）...")
             print("=" * 60)
-            print(f"输入文件夹：{self.input_dir}")
-            print(f"输出文件夹：{self.output_dir}")
-            print(f"相似度阈值：{self.threshold * 100:.0f}%")
+            print(f"入力フォルダ：{self.input_dir}")
+            print(f"出力フォルダ：{self.output_dir}")
+            print(f"類似度閾値：{self.threshold * 100:.0f}%")
             print()
             
             # 查找所有Excel文件
             excel_files = self.find_excel_files()
             
             if not excel_files:
-                print(f"错误：在 '{self.input_dir}' 文件夹中未找到Excel文件")
-                print("请将Excel文件放入input文件夹后重试")
+                print(f"エラー：'{self.input_dir}' フォルダにExcelファイルが見つかりません")
+                print("Excelファイルをinputフォルダに配置してから再試行してください")
                 return 1
             
-            print(f"发现 {len(excel_files)} 个Excel文件")
+            print(f"{len(excel_files)} 個のExcelファイルを発見しました")
             print()
             
             # 处理每个文件
@@ -72,16 +76,16 @@ class EBSMergerCLI:
             fail_count = 0
             
             for idx, input_file in enumerate(excel_files, 1):
-                print(f"[{idx}/{len(excel_files)}] 处理文件: {input_file.name}")
+                print(f"[{idx}/{len(excel_files)}] ファイル処理中: {input_file.name}")
                 print("-" * 60)
                 
                 try:
                     self.process_single_file(input_file)
                     success_count += 1
-                    print("✓ 处理成功")
+                    print("✓ 処理成功")
                 except Exception as e:
                     fail_count += 1
-                    print(f"✗ 处理失败: {e}")
+                    print(f"✗ 処理失敗: {e}")
                 
                 print()
             
@@ -91,7 +95,7 @@ class EBSMergerCLI:
             return 0 if fail_count == 0 else 1
             
         except Exception as e:
-            print(f"\n错误：处理过程中发生意外错误：{str(e)}")
+            print(f"\nエラー：処理中に予期しないエラーが発生しました：{str(e)}")
             return 1
     
     def find_excel_files(self):
@@ -119,84 +123,110 @@ class EBSMergerCLI:
         参数:
             input_file: 输入文件路径
         """
-        # 生成输出文件名
-        output_filename = f"グルーピング結果_{input_file.stem}.xlsx"
-        output_path = self.output_dir / output_filename
-        
-        # 1. 读取Excel文件
-        print(f"  正在读取Excel文件...")
+        # 1. Excelファイルの読み込み
+        print(f"  Excelファイルを読み込んでいます...")
         df = self.loader.load_excel(str(input_file))
-        print(f"  成功读取 {len(df)} 行数据")
+        print(f"  {len(df)} 行のデータを正常に読み込みました")
         
-        # 2. 分组IF
-        print(f"  正在分组IF...")
+        # 2. IFのグループ化
+        print(f"  IFをグループ化しています...")
         if_dict = self.grouper.group_by_if(df)
-        print(f"  发现 {len(if_dict)} 个IF")
+        print(f"  {len(if_dict)} 個のIFを発見しました")
         
-        # 3. 计算相似度
-        print(f"  正在计算相似度...")
+        # 3. AIによる分類
+        print(f"  AIで分類しています...")
+        categories = self.classifier.classify_interfaces(if_dict, df)
+        print(f"  ✓ 分類完了：{len(categories)}個の分類")
+        
+        # 分類後のデータを保存（outputの直下に分類フォルダを作成）
+        print(f"  分類データを保存しています...")
+        file_paths = self.classifier.save_classified_data(df, categories, str(self.output_dir))
+        
+        # 分類レポートの生成（outputルートディレクトリに配置）
+        self.classifier.generate_classification_report(
+            categories,
+            str(self.output_dir / "分類レポート.txt")
+        )
+        
+        # 各分類ごとにマージ処理を実行
+        print(f"  各分類のマージ処理を実行しています...")
+        for category_name, category_file in file_paths.items():
+            print(f"\n  分類を処理中：{category_name}")
+            self.process_classified_file(category_file, category_name)
+    
+    def process_classified_file(self, classified_file: Path, category_name: str):
+        """处理分类后的单个文件
+        
+        参数:
+            classified_file: 分类文件路径
+            category_name: 分类名称
+        """
+        # 获取分类文件夹路径（已经是output/[分类名]/xxx.xlsx）
+        category_dir = classified_file.parent
+        safe_name = category_name.replace('/', '_').replace('\\', '_')
+        
+        # 生成输出文件名（放在同一个分类文件夹下）
+        output_filename = f"グルーピング結果_{safe_name}.xlsx"
+        output_path = category_dir / output_filename
+        
+        # 1. 分類ファイルの読み込み
+        df = self.loader.load_excel(str(classified_file))
+        print(f"    {len(df)} 行のデータを読み込みました")
+        
+        # 2. IFのグループ化
+        if_dict = self.grouper.group_by_if(df)
+        print(f"    {len(if_dict)} 個のIFを発見しました")
+        
+        # 3. 類似度の計算
         similar_pairs = self.calculator.build_similarity_matrix(
             if_dict, 
             self.threshold
         )
-        print(f"  发现 {len(similar_pairs)} 对相似IF")
+        print(f"    {len(similar_pairs)} 組の類似IFを発見しました")
         
-        # 4. 生成分组
-        print(f"  正在生成分组...")
+        # 4. グループの生成
         groups = self.merge_grouper.group_similar_ifs(if_dict, similar_pairs)
         group_assignments = self.merge_grouper.assign_group_ids(groups)
-        print(f"  生成 {len(groups)} 个分组")
+        print(f"    {len(groups)} 個のグループを生成しました")
         
-        # 5. 写入输出文件
-        print(f"  正在写入输出文件...")
-        self.result_generator.generate_output(
+        # 5. 出力ファイルへの書き込み（分類フォルダ内に配置）
+        merged_if_names = self.result_generator.generate_output(
             if_dict,
             group_assignments,
             similar_pairs,
-            str(output_path)
+            str(output_path),
+            input_df=df
         )
-        print(f"  输出文件已保存：{output_path.name}")
+        print(f"    出力ファイルを保存しました：{output_filename}")
         
-        # 6. 生成合并组的模板文件
-        print(f"  正在生成合并组的模板文件...")
+        # 6. 生成合并组的模板文件（放在分类文件夹下）
         self.template_filler.fill_merged_groups(
             if_dict,
             group_assignments,
             similar_pairs,
             df,
-            str(self.output_dir)
+            str(category_dir),  # 直接使用分类文件夹
+            merged_if_names  # 传递AI生成的合并IF名
         )
         
-        # 7. 打印文件摘要
-        self.print_file_summary(if_dict, groups, group_assignments)
-    
-    def print_file_summary(self, if_dict, groups, group_assignments):
-        """打印单个文件的处理摘要
-        
-        参数:
-            if_dict: IF信息字典
-            groups: 分组结果
-            group_assignments: IF到分组ID的映射
-        """
-        # 统计需要合并的IF数量
+        # 7. サマリーの表示
         independent_count = sum(1 for group in groups.values() if len(group) == 1)
         total_merge_ifs = sum(len(group) for group in groups.values() if len(group) > 1)
-        
-        print(f"  总IF数：{len(if_dict)} | 需要合并：{total_merge_ifs} | 独立：{independent_count} | 分组数：{len(groups)}")
+        print(f"    総IF数：{len(if_dict)} | マージ必要：{total_merge_ifs} | 独立：{independent_count} | グループ数：{len(groups)}")
     
     def print_batch_summary(self, success_count, fail_count, total_count):
-        """打印批量处理摘要
+        """一括処理のサマリーを表示
         
-        参数:
-            success_count: 成功处理的文件数
-            fail_count: 失败的文件数
-            total_count: 总文件数
+        パラメータ:
+            success_count: 成功したファイル数
+            fail_count: 失敗したファイル数
+            total_count: 総ファイル数
         """
         print("=" * 60)
-        print("批量处理完成！")
+        print("一括処理が完了しました！")
         print("=" * 60)
-        print(f"总文件数：{total_count}")
-        print(f"成功处理：{success_count}")
-        print(f"处理失败：{fail_count}")
-        print(f"输出文件夹：{self.output_dir}")
+        print(f"総ファイル数：{total_count}")
+        print(f"成功：{success_count}")
+        print(f"失敗：{fail_count}")
+        print(f"出力フォルダ：{self.output_dir}")
         print("=" * 60)

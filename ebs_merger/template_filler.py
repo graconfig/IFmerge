@@ -28,7 +28,8 @@ class TemplateFiller:
         group_assignments: Dict[str, str],
         similar_pairs: List[Tuple[str, str, float]],
         input_df: pd.DataFrame,
-        output_dir: str = "output"
+        output_dir: str = "output",
+        merged_if_names: Dict[str, str] = None
     ):
         """为所有需要合并的组填充模板
         
@@ -38,6 +39,7 @@ class TemplateFiller:
             similar_pairs: 相似IF对列表
             input_df: 原始输入数据DataFrame
             output_dir: 输出文件夹路径
+            merged_if_names: AI生成的合并IF名字典 {group_id: merged_name}
         """
         # 构建分组信息：group_id -> [if_names]
         groups = {}
@@ -52,12 +54,18 @@ class TemplateFiller:
         # 只处理需要合并的组（成员数>1）
         for group_id, group_members in groups.items():
             if len(group_members) > 1:
+                # 获取AI生成的合并IF名（如果有）
+                merged_name = None
+                if merged_if_names and group_id in merged_if_names:
+                    merged_name = merged_if_names[group_id]
+                
                 self.fill_single_group(
                     group_id,
                     group_members,
                     if_dict,
                     input_df,
-                    output_path
+                    output_path,
+                    merged_name
                 )
     
     def fill_single_group(
@@ -66,7 +74,8 @@ class TemplateFiller:
         group_members: List[str],
         if_dict: Dict[str, IFInfo],
         input_df: pd.DataFrame,
-        output_path: Path
+        output_path: Path,
+        merged_if_name: str = None
     ):
         """为单个合并组填充模板
         
@@ -76,6 +85,7 @@ class TemplateFiller:
             if_dict: IF信息字典
             input_df: 原始输入数据DataFrame
             output_path: 输出文件夹路径
+            merged_if_name: AI生成的合并IF名（可选）
         """
         # 加载模板
         wb = load_workbook(self.template_path, keep_vba=True)
@@ -89,7 +99,11 @@ class TemplateFiller:
         doc_number = if_dict[first_if].doc_number
         
         # 生成合并后的文書名（IF名）
-        merged_if_name = "_".join(sorted(group_members))
+        # 如果有AI生成的名称，使用AI名称；否则使用下划线连接
+        if merged_if_name:
+            merged_name = merged_if_name
+        else:
+            merged_name = "_".join(sorted(group_members))
         
         # 安全地设置单元格值（处理合并单元格）
         def safe_set_cell(cell_ref, value):
@@ -108,11 +122,11 @@ class TemplateFiller:
         
         # 填充基本信息
         safe_set_cell('G4', doc_number)  # 文書管理番号
-        safe_set_cell('Q4', merged_if_name)  # 文書名
+        safe_set_cell('Q4', merged_name)  # 文書名（使用AI生成的名称）
         safe_set_cell('AF4', today)  # 作成日
         safe_set_cell('AQ4', today)  # 最終更新日
-        safe_set_cell('G6', merged_if_name)  # データ定義名称
-        safe_set_cell('G21', f"{merged_if_name}.csv")  # ファイル名
+        safe_set_cell('G6', merged_name)  # データ定義名称（使用AI生成的名称）
+        safe_set_cell('G21', f"{merged_name}.csv")  # ファイル名（使用AI生成的名称）
         
         # 收集所有IF的数据行
         all_rows = []
@@ -236,9 +250,9 @@ class TemplateFiller:
             
             row_no += 1
         
-        # 保存文件
-        output_filename = f"{group_id}_{merged_if_name}.xlsm"
+        # 保存文件（文件名也使用AI生成的名称）
+        output_filename = f"{group_id}_{merged_name}.xlsm"
         output_filepath = output_path / output_filename
         wb.save(output_filepath)
         
-        print(f"  生成模板文件：{output_filename}")
+        print(f"  テンプレートファイルを生成しました：{output_filename}")
