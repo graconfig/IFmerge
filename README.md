@@ -28,21 +28,6 @@
 pip install -r requirements.txt
 ```
 
-### 验证配置
-
-安装完成后，可以运行验证脚本检查配置是否正确：
-
-```bash
-python verify_config.py
-```
-
-该脚本会检查：
-- ✅ .env文件是否存在
-- ✅ SAP AI Core配置是否完整
-- ✅ Python依赖是否安装
-- ✅ 目录结构是否正确
-- ✅ 模块是否可以正常导入
-
 ## 使用方法
 
 ### 基本用法（批量处理）
