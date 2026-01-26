@@ -150,11 +150,21 @@ class EBSMergerCLI:
         print(f"  モジュール別にデータを整理しています...")
         module_data = self._organize_by_module(categories, if_dict, df)
         
+        # 收集所有行用于统一的グルーピング結果文件
+        all_output_rows = []
+        
         # 各模块ごとに処理
         print(f"  各モジュールのマージ処理を実行しています...")
         for module_name, scenarios in module_data.items():
             print(f"\n  モジュールを処理中：{module_name}")
-            self.process_module(module_name, scenarios, df)
+            module_rows = self.process_module(module_name, scenarios, df)
+            all_output_rows.extend(module_rows)
+        
+        # 输出统一的グルーピング結果文件（不分模块）
+        output_filename = "グルーピング結果.xlsx"
+        output_path = self.output_dir / output_filename
+        self._write_unified_output(all_output_rows, output_path)
+        print(f"\n  ✓ グルーピング結果ファイルを保存しました：{output_filename}")
     
     def _organize_by_module(self, categories, if_dict, df):
         """按模块组织分类数据
@@ -181,12 +191,15 @@ class EBSMergerCLI:
             module_name: 模块名（如FI、SD）
             scenarios: {scenario: (category_name, if_dict, df)}
             full_df: 完整的数据DataFrame
+            
+        返回:
+            所有场景的输出行列表
         """
         # 创建模块文件夹
         module_dir = self.output_dir / module_name
         module_dir.mkdir(parents=True, exist_ok=True)
         
-        # 收集所有场景的数据用于合并输出
+        # 收集所有场景的数据
         all_module_rows = []
         module_matrix_data = {}
         
@@ -206,7 +219,7 @@ class EBSMergerCLI:
             group_assignments = self.merge_grouper.assign_group_ids(groups, module=module_name)
             print(f"      {len(groups)} 個のグループを生成しました")
             
-            # 生成输出行（不立即写入文件）
+            # 生成输出行
             rows = self._generate_output_rows(
                 if_dict, group_assignments, similar_pairs, df,
                 module_name, scenario
@@ -216,24 +229,15 @@ class EBSMergerCLI:
             # 保存矩阵数据（使用完整相似度数据）
             module_matrix_data[scenario] = (category_name, if_dict, all_similarity_pairs)
             
-            # 生成模板文件（按场景）
-            scenario_dir = module_dir / scenario.replace('/', '_').replace('\\', '_')
-            scenario_dir.mkdir(parents=True, exist_ok=True)
-            
+            # 生成模板文件（直接放到模块文件夹，不创建业务场景子文件夹）
             merged_if_names = self._get_merged_if_names(
                 if_dict, group_assignments, groups, similar_pairs, df
             )
             
             self.template_filler.fill_merged_groups(
                 if_dict, group_assignments, similar_pairs, df,
-                str(scenario_dir), merged_if_names
+                str(module_dir), merged_if_names
             )
-        
-        # 输出合并的结果文件（模块级别）
-        output_filename = f"グルーピング結果_{module_name}.xlsx"
-        output_path = module_dir / output_filename
-        self._write_module_output(all_module_rows, output_path)
-        print(f"    ✓ モジュール結果ファイルを保存しました：{output_filename}")
         
         # 输出相似度矩阵（模块级别，多sheet）
         matrix_filename = f"類似度マトリックス_{module_name}.xlsx"
@@ -241,6 +245,9 @@ class EBSMergerCLI:
         self.matrix_exporter.export_module_matrices(
             module_matrix_data, str(matrix_path), module_name
         )
+        
+        # 返回所有行用于统一输出
+        return all_module_rows
     
     def _generate_output_rows(self, if_dict, group_assignments, similar_pairs, df,
                               module_name, scenario):
@@ -319,7 +326,14 @@ class EBSMergerCLI:
         """获取合并IF名称"""
         merged_if_names = {}
         
-        for group_id, group_members in groups.items():
+        # 构建分组信息：group_id -> [if_names]
+        groups_dict = {}
+        for if_name, group_id in group_assignments.items():
+            if group_id not in groups_dict:
+                groups_dict[group_id] = []
+            groups_dict[group_id].append(if_name)
+        
+        for group_id, group_members in groups_dict.items():
             if len(group_members) > 1:
                 try:
                     merged_name = self.result_generator.ai_generator.generate_merged_if_name(
@@ -331,8 +345,8 @@ class EBSMergerCLI:
         
         return merged_if_names
     
-    def _write_module_output(self, rows, output_path):
-        """写入模块级别的输出文件"""
+    def _write_unified_output(self, rows, output_path):
+        """写入统一的グルーピング結果文件"""
         import pandas as pd
         
         # 添加No.列
