@@ -77,3 +77,37 @@ class SimilarityCalculator:
                     similar_pairs.append((if1_name, if2_name, similarity))
         
         return similar_pairs
+    
+    def build_full_similarity_matrix(
+        self, 
+        if_dict: Dict[str, IFInfo]
+    ) -> List[Tuple[str, str, float]]:
+        """构建所有IF对的完整相似度矩阵（不考虑阈值）
+        
+        参数:
+            if_dict: IF名称到IFInfo的映射
+            
+        返回:
+            (IF1名称, IF2名称, 相似度)的列表，包含所有IF对
+        """
+        all_pairs = []
+        
+        # 获取所有IF名称列表
+        if_names = list(if_dict.keys())
+        
+        # 两两比较所有IF
+        for i in range(len(if_names)):
+            for j in range(i + 1, len(if_names)):
+                if1_name = if_names[i]
+                if2_name = if_names[j]
+                
+                if1 = if_dict[if1_name]
+                if2 = if_dict[if2_name]
+                
+                # 计算相似度
+                similarity = self.calculate_similarity(if1, if2)
+                
+                # 保留所有对（包括相似度为0的）
+                all_pairs.append((if1_name, if2_name, similarity))
+        
+        return all_pairs

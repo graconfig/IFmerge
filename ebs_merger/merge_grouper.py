@@ -102,21 +102,30 @@ class MergeGrouper:
         # 获取分组结果
         return uf.get_groups()
     
-    def assign_group_ids(self, groups: Dict[str, List[str]]) -> Dict[str, str]:
+    def assign_group_ids(
+        self, 
+        groups: Dict[str, List[str]],
+        module: str = ""
+    ) -> Dict[str, str]:
         """为每个IF分配グルーピングID
         
         参数:
             groups: 分组结果
+            module: 模块名（如FI、SD），用于生成模块特定的ID
             
         返回:
-            IF名称到グルーピングID的映射（格式：G001, G002, ...）
+            IF名称到グルーピングID的映射（格式：FI001, SD001, ...）
         """
         group_assignments = {}
         group_id = 1
         
-        # 为每个组分配ID（格式：G001, G002, ...）
+        # 为每个组分配ID（格式：[MODULE]001, [MODULE]002, ...）
         for group_members in groups.values():
-            formatted_id = f"G{group_id:03d}"  # 格式化为G001, G002等
+            if module:
+                formatted_id = f"{module}{group_id:03d}"  # 格式化为FI001, SD001等
+            else:
+                formatted_id = f"G{group_id:03d}"  # 默认格式G001, G002等
+            
             for if_name in group_members:
                 group_assignments[if_name] = formatted_id
             group_id += 1

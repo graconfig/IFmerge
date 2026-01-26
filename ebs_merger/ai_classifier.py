@@ -25,7 +25,7 @@ class AIClassifier:
         self,
         if_dict: Dict[str, IFInfo],
         input_df: pd.DataFrame
-    ) -> Dict[str, List[str]]:
+    ) -> Dict[str, Tuple[str, str, List[str]]]:
         """使用AI对IF进行分类
         
         参数:
@@ -33,7 +33,8 @@ class AIClassifier:
             input_df: 输入数据DataFrame
             
         返回:
-            分类结果字典: {category_name: [if_names]}
+            分类结果字典: {category_name: (module, scenario, [if_names])}
+            其中module是SAP模块（如FI、SD），scenario是业务场景
         """
         # 准备所有IF的信息
         if_info_list = []
@@ -134,7 +135,14 @@ classify_interfacesツールを使用して分類結果を返してください�
                     description = category.get('category_description', '')
                     
                     if category_name and if_names:
-                        categories[category_name] = if_names
+                        # 解析模块和场景（格式：模块_场景）
+                        parts = category_name.split('_', 1)
+                        if len(parts) == 2:
+                            module, scenario = parts
+                        else:
+                            module, scenario = category_name, "未分類"
+                        
+                        categories[category_name] = (module, scenario, if_names)
                         category_descriptions[category_name] = description
             
             # 保存分类说明
@@ -145,29 +153,29 @@ classify_interfacesツールを使用して分類結果を返してください�
         except Exception as e:
             print(f"    警告：AI分類に失敗しました: {e}")
             # フォールバック：すべてのIFを「その他_未分類」に配置
-            return {"その他_未分類": list(if_dict.keys())}
+            return {"その他_未分類": ("その他", "未分類", list(if_dict.keys()))}
     
     def save_classified_data(
         self,
         input_df: pd.DataFrame,
-        categories: Dict[str, List[str]],
+        categories: Dict[str, Tuple[str, str, List[str]]],
         output_dir: str = "output"
-    ) -> Dict[str, Path]:
+    ) -> Dict[str, Tuple[Path, str, str]]:
         """保存分类后的数据到不同文件
         
         参数:
             input_df: 输入数据DataFrame
-            categories: 分类结果字典
+            categories: 分类结果字典 {category_name: (module, scenario, if_names)}
             output_dir: 输出目录（直接在output下创建分类文件夹）
             
         返回:
-            文件路径字典: {category_name: file_path}
+            文件路径字典: {category_name: (file_path, module, scenario)}
         """
         output_path = Path(output_dir)
         
         file_paths = {}
         
-        for category_name, if_names in categories.items():
+        for category_name, (module, scenario, if_names) in categories.items():
             # 筛选属于该分类的数据
             category_df = input_df[input_df['IF名'].isin(if_names)]
             
@@ -185,7 +193,7 @@ classify_interfacesツールを使用して分類結果を返してください�
                 
                 # 保存到Excel
                 category_df.to_excel(filepath, index=False, engine='openpyxl')
-                file_paths[category_name] = filepath
+                file_paths[category_name] = (filepath, module, scenario)
                 
                 print(f"    ✓ {category_name}: {len(if_names)}個のIF, {len(category_df)}行のデータ -> {safe_name}/{filename}")
         
@@ -193,13 +201,13 @@ classify_interfacesツールを使用して分類結果を返してください�
     
     def generate_classification_report(
         self,
-        categories: Dict[str, List[str]],
+        categories: Dict[str, Tuple[str, str, List[str]]],
         output_path: str = "output/分類レポート.txt"
     ):
         """分類レポートを生成
         
         パラメータ:
-            categories: 分類結果辞書
+            categories: 分類結果辞書 {category_name: (module, scenario, if_names)}
             output_path: レポートファイルパス（outputルートディレクトリに配置）
         """
         report_path = Path(output_path)
@@ -210,11 +218,14 @@ classify_interfacesツールを使用して分類結果を返してください�
             f.write("IF分類レポート（SAPモジュールと業務シナリオ別）\n")
             f.write("=" * 80 + "\n\n")
             
+            total_ifs = sum(len(data[2]) for data in categories.values())
             f.write(f"総分類数：{len(categories)}\n")
-            f.write(f"総IF数：{sum(len(ifs) for ifs in categories.values())}\n\n")
+            f.write(f"総IF数：{total_ifs}\n\n")
             
-            for idx, (category_name, if_names) in enumerate(sorted(categories.items()), 1):
+            for idx, (category_name, (module, scenario, if_names)) in enumerate(sorted(categories.items()), 1):
                 f.write(f"{idx}. {category_name}\n")
+                f.write(f"   モジュール：{module}\n")
+                f.write(f"   業務内容：{scenario}\n")
                 
                 # 分類説明がある場合
                 if hasattr(self, 'category_descriptions') and category_name in self.category_descriptions:

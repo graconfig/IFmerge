@@ -16,10 +16,12 @@ class OutputRow:
     no: int
     doc_number: str  # 文書管理番号
     if_name: str
+    module: str  # モジュール（新增）
+    scenario: str  # 業務内容（新增）
     item_count: int  # 項目数
     if_summary: str  # IF概要（可选）
     representative_item: str  # 代表項目名
-    grouping_id: str  # グルーピングID（格式：G001, G002, ...）
+    grouping_id: str  # グルーピングID（格式：FI001, SD001, ...）
     merge_required: str  # "○" (需要合并) or "×" (不需要合并)
     merged_if_name: str  # グルーピング後のIF名
     grouping_reason: str  # グルーピングの根拠
@@ -43,16 +45,20 @@ class ResultGenerator:
         group_assignments: Dict[str, str],
         similar_pairs: List[Tuple[str, str, float]],
         output_path: str,
-        input_df: Optional[pd.DataFrame] = None
+        input_df: Optional[pd.DataFrame] = None,
+        module: str = "",
+        scenario: str = ""
     ) -> Dict[str, str]:
         """生成输出Excel文件
         
         参数:
             if_dict: IF信息字典
-            group_assignments: IF到グルーピングIDの映射（格式：G001, G002, ...）
+            group_assignments: IF到グルーピングIDの映射（格式：FI001, SD001, ...）
             similar_pairs: 相似IF对列表（用于生成根据）
             output_path: 输出文件路径
             input_df: 输入数据DataFrame（使用AI时需要）
+            module: 模块名（如FI、SD）
+            scenario: 业务场景名
             
         返回:
             AI生成的合并IF名字典 {group_id: merged_name}
@@ -129,6 +135,8 @@ class ResultGenerator:
                 no=row_no,
                 doc_number=if_info.doc_number,
                 if_name=if_name,
+                module=module,
+                scenario=scenario,
                 item_count=if_info.item_count,
                 if_summary=if_summary,
                 representative_item=representative_item,
@@ -147,6 +155,8 @@ class ResultGenerator:
                 'No.': row.no,
                 '文書管理番号': row.doc_number,
                 'IF名': row.if_name,
+                'モジュール': row.module,
+                '業務内容': row.scenario,
                 '項目数': row.item_count,
                 'IF概要': row.if_summary,
                 '代表項目名': row.representative_item,

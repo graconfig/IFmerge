@@ -11,6 +11,7 @@ from ebs_merger.similarity_calculator import SimilarityCalculator
 from ebs_merger.merge_grouper import MergeGrouper
 from ebs_merger.result_generator import ResultGenerator
 from ebs_merger.template_filler import TemplateFiller
+from ebs_merger.matrix_exporter import MatrixExporter
 
 
 class EBSMergerCLI:
@@ -40,6 +41,7 @@ class EBSMergerCLI:
         self.merge_grouper = MergeGrouper()
         self.result_generator = ResultGenerator(use_ai=True)
         self.template_filler = TemplateFiller()
+        self.matrix_exporter = MatrixExporter()
         
         # 初始化AI分类器
         from ebs_merger.ai_classifier import AIClassifier
@@ -138,81 +140,213 @@ class EBSMergerCLI:
         categories = self.classifier.classify_interfaces(if_dict, df)
         print(f"  ✓ 分類完了：{len(categories)}個の分類")
         
-        # 分類後のデータを保存（outputの直下に分類フォルダを作成）
-        print(f"  分類データを保存しています...")
-        file_paths = self.classifier.save_classified_data(df, categories, str(self.output_dir))
-        
         # 分類レポートの生成（outputルートディレクトリに配置）
         self.classifier.generate_classification_report(
             categories,
             str(self.output_dir / "分類レポート.txt")
         )
         
-        # 各分類ごとにマージ処理を実行
-        print(f"  各分類のマージ処理を実行しています...")
-        for category_name, category_file in file_paths.items():
-            print(f"\n  分類を処理中：{category_name}")
-            self.process_classified_file(category_file, category_name)
+        # 按模块组织数据
+        print(f"  モジュール別にデータを整理しています...")
+        module_data = self._organize_by_module(categories, if_dict, df)
+        
+        # 各模块ごとに処理
+        print(f"  各モジュールのマージ処理を実行しています...")
+        for module_name, scenarios in module_data.items():
+            print(f"\n  モジュールを処理中：{module_name}")
+            self.process_module(module_name, scenarios, df)
     
-    def process_classified_file(self, classified_file: Path, category_name: str):
-        """处理分类后的单个文件
+    def _organize_by_module(self, categories, if_dict, df):
+        """按模块组织分类数据
+        
+        返回:
+            {module: {scenario: (category_name, if_dict, df)}}
+        """
+        from collections import defaultdict
+        module_data = defaultdict(dict)
+        
+        for category_name, (module, scenario, if_names) in categories.items():
+            # 筛选该分类的IF
+            category_if_dict = {name: if_dict[name] for name in if_names if name in if_dict}
+            category_df = df[df['IF名'].isin(if_names)]
+            
+            module_data[module][scenario] = (category_name, category_if_dict, category_df)
+        
+        return module_data
+    
+    def process_module(self, module_name: str, scenarios: dict, full_df):
+        """处理单个模块的所有场景
         
         参数:
-            classified_file: 分类文件路径
-            category_name: 分类名称
+            module_name: 模块名（如FI、SD）
+            scenarios: {scenario: (category_name, if_dict, df)}
+            full_df: 完整的数据DataFrame
         """
-        # 获取分类文件夹路径（已经是output/[分类名]/xxx.xlsx）
-        category_dir = classified_file.parent
-        safe_name = category_name.replace('/', '_').replace('\\', '_')
+        # 创建模块文件夹
+        module_dir = self.output_dir / module_name
+        module_dir.mkdir(parents=True, exist_ok=True)
         
-        # 生成输出文件名（放在同一个分类文件夹下）
-        output_filename = f"グルーピング結果_{safe_name}.xlsx"
-        output_path = category_dir / output_filename
+        # 收集所有场景的数据用于合并输出
+        all_module_rows = []
+        module_matrix_data = {}
         
-        # 1. 分類ファイルの読み込み
-        df = self.loader.load_excel(str(classified_file))
-        print(f"    {len(df)} 行のデータを読み込みました")
+        for scenario, (category_name, if_dict, df) in scenarios.items():
+            print(f"    場景を処理中：{scenario}")
+            print(f"      {len(if_dict)} 個のIF, {len(df)} 行のデータ")
+            
+            # 計算相似度（用于分组，只包含超过阈值的）
+            similar_pairs = self.calculator.build_similarity_matrix(if_dict, self.threshold)
+            print(f"      {len(similar_pairs)} 組の類似IFを発見しました")
+            
+            # 計算完整相似度（用于矩阵输出，包含所有IF对）
+            all_similarity_pairs = self.calculator.build_full_similarity_matrix(if_dict)
+            
+            # 生成分組
+            groups = self.merge_grouper.group_similar_ifs(if_dict, similar_pairs)
+            group_assignments = self.merge_grouper.assign_group_ids(groups, module=module_name)
+            print(f"      {len(groups)} 個のグループを生成しました")
+            
+            # 生成输出行（不立即写入文件）
+            rows = self._generate_output_rows(
+                if_dict, group_assignments, similar_pairs, df,
+                module_name, scenario
+            )
+            all_module_rows.extend(rows)
+            
+            # 保存矩阵数据（使用完整相似度数据）
+            module_matrix_data[scenario] = (category_name, if_dict, all_similarity_pairs)
+            
+            # 生成模板文件（按场景）
+            scenario_dir = module_dir / scenario.replace('/', '_').replace('\\', '_')
+            scenario_dir.mkdir(parents=True, exist_ok=True)
+            
+            merged_if_names = self._get_merged_if_names(
+                if_dict, group_assignments, groups, similar_pairs, df
+            )
+            
+            self.template_filler.fill_merged_groups(
+                if_dict, group_assignments, similar_pairs, df,
+                str(scenario_dir), merged_if_names
+            )
         
-        # 2. IFのグループ化
-        if_dict = self.grouper.group_by_if(df)
-        print(f"    {len(if_dict)} 個のIFを発見しました")
+        # 输出合并的结果文件（模块级别）
+        output_filename = f"グルーピング結果_{module_name}.xlsx"
+        output_path = module_dir / output_filename
+        self._write_module_output(all_module_rows, output_path)
+        print(f"    ✓ モジュール結果ファイルを保存しました：{output_filename}")
         
-        # 3. 類似度の計算
-        similar_pairs = self.calculator.build_similarity_matrix(
-            if_dict, 
-            self.threshold
+        # 输出相似度矩阵（模块级别，多sheet）
+        matrix_filename = f"類似度マトリックス_{module_name}.xlsx"
+        matrix_path = module_dir / matrix_filename
+        self.matrix_exporter.export_module_matrices(
+            module_matrix_data, str(matrix_path), module_name
         )
-        print(f"    {len(similar_pairs)} 組の類似IFを発見しました")
+    
+    def _generate_output_rows(self, if_dict, group_assignments, similar_pairs, df,
+                              module_name, scenario):
+        """生成输出行数据"""
+        from ebs_merger.result_generator import OutputRow
         
-        # 4. グループの生成
-        groups = self.merge_grouper.group_similar_ifs(if_dict, similar_pairs)
-        group_assignments = self.merge_grouper.assign_group_ids(groups)
-        print(f"    {len(groups)} 個のグループを生成しました")
+        # 构建分组信息
+        groups = {}
+        for if_name, group_id in group_assignments.items():
+            if group_id not in groups:
+                groups[group_id] = []
+            groups[group_id].append(if_name)
         
-        # 5. 出力ファイルへの書き込み（分類フォルダ内に配置）
-        merged_if_names = self.result_generator.generate_output(
-            if_dict,
-            group_assignments,
-            similar_pairs,
-            str(output_path),
-            input_df=df
-        )
-        print(f"    出力ファイルを保存しました：{output_filename}")
+        # 生成AI内容
+        merged_if_names_cache = {}
+        all_if_info = {}
         
-        # 6. 生成合并组的模板文件（放在分类文件夹下）
-        self.template_filler.fill_merged_groups(
-            if_dict,
-            group_assignments,
-            similar_pairs,
-            df,
-            str(category_dir),  # 直接使用分类文件夹
-            merged_if_names  # 传递AI生成的合并IF名
-        )
+        if self.result_generator.use_ai:
+            try:
+                all_if_info = self.result_generator.ai_generator.generate_all_if_info(if_dict, df)
+            except:
+                pass
+            
+            for group_id, group_members in groups.items():
+                if len(group_members) > 1:
+                    try:
+                        merged_name = self.result_generator.ai_generator.generate_merged_if_name(
+                            group_members, if_dict, df
+                        )
+                        merged_if_names_cache[group_id] = merged_name
+                    except:
+                        merged_if_names_cache[group_id] = self.result_generator.create_merged_if_name(sorted(group_members))
         
-        # 7. サマリーの表示
-        independent_count = sum(1 for group in groups.values() if len(group) == 1)
-        total_merge_ifs = sum(len(group) for group in groups.values() if len(group) > 1)
-        print(f"    総IF数：{len(if_dict)} | マージ必要：{total_merge_ifs} | 独立：{independent_count} | グループ数：{len(groups)}")
+        # 生成输出行
+        output_rows = []
+        for if_name in sorted(if_dict.keys()):
+            if_info = if_dict[if_name]
+            group_id = group_assignments[if_name]
+            group_members = groups[group_id]
+            
+            merge_required = "○" if len(group_members) > 1 else "×"
+            
+            if if_name in all_if_info:
+                if_summary = all_if_info[if_name].get('summary', '')
+                representative_item = all_if_info[if_name].get('representative_item', if_info.representative_item)
+            else:
+                if_summary = ""
+                representative_item = if_info.representative_item
+            
+            if group_id in merged_if_names_cache:
+                merged_if_name = merged_if_names_cache[group_id]
+            else:
+                merged_if_name = self.result_generator.create_merged_if_name(sorted(group_members))
+            
+            grouping_reason = self.result_generator.create_grouping_reason(
+                if_name, group_members, similar_pairs
+            )
+            
+            output_rows.append({
+                '文書管理番号': if_info.doc_number,
+                'IF名': if_name,
+                'モジュール': module_name,
+                '業務内容': scenario,
+                '項目数': if_info.item_count,
+                'IF概要': if_summary,
+                '代表項目名': representative_item,
+                'グルーピングID': group_id,
+                'マージ要否': merge_required,
+                'グルーピング後のIF名': merged_if_name,
+                'グルーピングの根拠': grouping_reason
+            })
+        
+        return output_rows
+    
+    def _get_merged_if_names(self, if_dict, group_assignments, groups, similar_pairs, df):
+        """获取合并IF名称"""
+        merged_if_names = {}
+        
+        for group_id, group_members in groups.items():
+            if len(group_members) > 1:
+                try:
+                    merged_name = self.result_generator.ai_generator.generate_merged_if_name(
+                        group_members, if_dict, df
+                    )
+                    merged_if_names[group_id] = merged_name
+                except:
+                    merged_if_names[group_id] = self.result_generator.create_merged_if_name(sorted(group_members))
+        
+        return merged_if_names
+    
+    def _write_module_output(self, rows, output_path):
+        """写入模块级别的输出文件"""
+        import pandas as pd
+        
+        # 添加No.列
+        for idx, row in enumerate(rows, 1):
+            row['No.'] = idx
+        
+        # 重新排列列顺序
+        df = pd.DataFrame(rows)
+        column_order = ['No.', '文書管理番号', 'IF名', 'モジュール', '業務内容', 
+                       '項目数', 'IF概要', '代表項目名', 'グルーピングID', 
+                       'マージ要否', 'グルーピング後のIF名', 'グルーピングの根拠']
+        df = df[column_order]
+        
+        df.to_excel(output_path, index=False, engine='openpyxl')
     
     def print_batch_summary(self, success_count, fail_count, total_count):
         """一括処理のサマリーを表示
