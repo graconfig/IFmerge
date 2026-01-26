@@ -140,12 +140,6 @@ class EBSMergerCLI:
         categories = self.classifier.classify_interfaces(if_dict, df)
         print(f"  ✓ 分類完了：{len(categories)}個の分類")
         
-        # 分類レポートの生成（outputルートディレクトリに配置）
-        self.classifier.generate_classification_report(
-            categories,
-            str(self.output_dir / "分類レポート.txt")
-        )
-        
         # 按模块组织数据
         print(f"  モジュール別にデータを整理しています...")
         module_data = self._organize_by_module(categories, if_dict, df)

@@ -72,8 +72,8 @@ class AIClassifier:
 
 グループ化要件：
 - 各インターフェースは1つのグループにのみ属する
-- グループ名の形式：[SAPモジュール]_[業務シナリオ]（例：WM_出荷管理）
-- 明確に分類できない場合は「その他_未分類」を使用
+- SAPモジュールと業務シナリオを別々のフィールドで指定
+- 明確に分類できない場合は、module: "その他"、scenario: "未分類"を使用
 
 classify_interfacesツールを使用して分類結果を返してください。"""
         
@@ -93,9 +93,13 @@ classify_interfacesツールを使用して分類結果を返してください�
                                     'items': {
                                         'type': 'object',
                                         'properties': {
-                                            'category_name': {
+                                            'module': {
                                                 'type': 'string',
-                                                'description': '分類名（形式：[SAPモジュール]_[業務シナリオ]）'
+                                                'description': 'SAPモジュール（例：SD、MM、PP、WM、FI、CO、HRなど）'
+                                            },
+                                            'scenario': {
+                                                'type': 'string',
+                                                'description': '業務シナリオ（例：受注処理、在庫管理、出荷管理、購買管理など）'
                                             },
                                             'category_description': {
                                                 'type': 'string',
@@ -109,7 +113,7 @@ classify_interfacesツールを使用して分類結果を返してください�
                                                 }
                                             }
                                         },
-                                        'required': ['category_name', 'category_description', 'if_names']
+                                        'required': ['module', 'scenario', 'category_description', 'if_names']
                                     }
                                 }
                             },
@@ -130,17 +134,14 @@ classify_interfacesツールを使用して分類結果を返してください�
             
             if 'classify_interfaces' in tool_calls:
                 for category in tool_calls['classify_interfaces'].get('categories', []):
-                    category_name = category.get('category_name')
+                    module = category.get('module', 'その他')
+                    scenario = category.get('scenario', '未分類')
                     if_names = category.get('if_names', [])
                     description = category.get('category_description', '')
                     
-                    if category_name and if_names:
-                        # 解析模块和场景（格式：模块_场景）
-                        parts = category_name.split('_', 1)
-                        if len(parts) == 2:
-                            module, scenario = parts
-                        else:
-                            module, scenario = category_name, "未分類"
+                    if module and scenario and if_names:
+                        # 生成分类名（格式：モジュール_シナリオ）
+                        category_name = f"{module}_{scenario}"
                         
                         categories[category_name] = (module, scenario, if_names)
                         category_descriptions[category_name] = description
