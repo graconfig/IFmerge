@@ -126,7 +126,7 @@ classify_interfacesツールを使用して分類結果を返してください�
         
         try:
             # 调用AI
-            tool_calls = self.ai_generator._call_claude_with_tools(prompt, tools, max_tokens=2000)
+            tool_calls = self.ai_generator._call_claude_with_tools(prompt, tools)
             
             # 处理结果
             categories = {}

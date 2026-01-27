@@ -79,14 +79,14 @@ class AIGenerator:
         self,
         prompt: str,
         tools: List[Dict],
-        max_tokens: int = 2000
+        max_tokens: int = 8192
     ) -> Dict:
         """ツール呼び出しを使用してClaudeモデルを呼び出す
         
         パラメータ:
             prompt: プロンプト
             tools: ツール定義リスト（toolSpecでラップする必要がある）
-            max_tokens: 最大トークン数
+            max_tokens: 最大トークン数（デフォルト: 8192、制限なし）
             
         戻り値:
             ツール呼び出し結果辞書
@@ -167,8 +167,9 @@ class AIGenerator:
                 'if_name': if_name,
                 'doc_number': if_info.doc_number,
                 'tables': tables[:3],  # 最大3テーブル
-                'items': items[:10],  # 最大10項目
-                'item_count': if_info.item_count
+                'items': items,  # 所有項目
+                'item_count': if_info.item_count,
+                'top_20_percent_count': max(1, int(if_info.item_count * 0.2))  # 20%的项目数
             })
         
         # プロンプトの構築
@@ -177,18 +178,21 @@ class AIGenerator:
 インターフェース情報：
 """
         for idx, info in enumerate(if_info_list, 1):
+            # 限制显示的项目数量，避免提示词过长
+            sample_items = info['items'][:20]  # 最多显示20个项目作为参考
             prompt += f"""
 {idx}. IF名: {info['if_name']}
    文書管理番号: {info['doc_number']}
    関連テーブル: {', '.join(info['tables'])}
    項目総数: {info['item_count']}
-   サンプル項目: {', '.join(info['items'][:5])}
+   選択すべき代表項目数: {info['top_20_percent_count']}個（項目総数の約20%）
+   参考項目（最初の{len(sample_items)}個）: {', '.join(sample_items)}
 """
         
         prompt += """
 提供されたツールを使用して、各インターフェースの情報を生成してください。要件：
 1. IF概要：日本語で簡潔な機能説明を生成（30-50文字）、インターフェースの主な機能と用途を要約
-2. 代表項目名：サンプル項目から、そのインターフェースの中核機能を最もよく表す項目名を選択
+2. 代表項目名：各インターフェースの項目総数の約20%に相当する代表的な項目名を選択してください。選択した項目名をカンマで区切って返してください（例：項目総数が50個の場合、約10個の項目名を選択）
 
 generate_all_if_infoツールを呼び出して、すべてのインターフェースの情報を一度に返してください。"""
         
@@ -234,19 +238,38 @@ generate_all_if_infoツールを呼び出して、すべてのインターフェ
         
         try:
             # 调用Claude
-            tool_calls = self._call_claude_with_tools(prompt, tools, max_tokens=3000)
+            tool_calls = self._call_claude_with_tools(prompt, tools)
             
             # 处理结果
             results = {}
             if 'generate_all_if_info' in tool_calls:
                 interfaces = tool_calls['generate_all_if_info'].get('interfaces', [])
+                print(f"    AI返回了 {len(interfaces)} 個のIF情報")
+                
+                # 收集AI返回的IF名称
+                returned_if_names = set()
                 for interface in interfaces:
                     if_name = interface.get('if_name')
+                    summary = interface.get('summary', '')
+                    rep_item = interface.get('representative_item', '')
+                    
                     if if_name:
+                        returned_if_names.add(if_name)
                         results[if_name] = {
-                            'summary': interface.get('summary', ''),
-                            'representative_item': interface.get('representative_item', '')
+                            'summary': summary,
+                            'representative_item': rep_item
                         }
+                
+                # 检查是否有IF没有被返回
+                expected_if_names = set(if_dict.keys())
+                missing_if_names = expected_if_names - returned_if_names
+                if missing_if_names:
+                    print(f"      警告：{len(missing_if_names)}個のIFがAI応答に含まれていません")
+                    # 输出调试信息（限制输出长度避免编码问题）
+                    import json
+                    print(f"      期待: {len(expected_if_names)}個, 返回: {len(returned_if_names)}個")
+            else:
+                print(f"    警告：AIがgenerate_all_if_infoツールを呼び出しませんでした")
             
             return results
             
@@ -313,7 +336,7 @@ generate_merged_nameツールを使用して新しいインターフェース名
         ]
         
         try:
-            tool_calls = self._call_claude_with_tools(prompt, tools, max_tokens=200)
+            tool_calls = self._call_claude_with_tools(prompt, tools)
             
             if 'generate_merged_name' in tool_calls:
                 return tool_calls['generate_merged_name'].get('merged_name', '')
