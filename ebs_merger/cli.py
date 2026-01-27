@@ -197,6 +197,9 @@ class EBSMergerCLI:
         all_module_rows = []
         module_matrix_data = {}
         
+        # モジュール全体でグルーピングIDを管理（連番）
+        module_group_id_counter = 1
+        
         for scenario, (category_name, if_dict, df) in scenarios.items():
             print(f"    場景を処理中：{scenario}")
             print(f"      {len(if_dict)} 個のIF, {len(df)} 行のデータ")
@@ -210,7 +213,15 @@ class EBSMergerCLI:
             
             # 生成分組
             groups = self.merge_grouper.group_similar_ifs(if_dict, similar_pairs)
-            group_assignments = self.merge_grouper.assign_group_ids(groups, module=module_name)
+            
+            # モジュール全体で連番のグルーピングIDを割り当て
+            group_assignments = {}
+            for group_members in groups.values():
+                formatted_id = f"{module_name}{module_group_id_counter:03d}"
+                for if_name in group_members:
+                    group_assignments[if_name] = formatted_id
+                module_group_id_counter += 1
+            
             print(f"      {len(groups)} 個のグループを生成しました")
             
             # 生成输出行
