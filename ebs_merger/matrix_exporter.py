@@ -13,6 +13,38 @@ from ebs_merger.if_grouper import IFInfo
 class MatrixExporter:
     """類似度マトリックスのExcelエクスポーター"""
     
+    def _calculate_directional_similarity(
+        self,
+        if1: IFInfo,
+        if2: IFInfo,
+        use_if1_as_denominator: bool = True
+    ) -> float:
+        """计算定向相似度（使用指定IF的字段数作为分母）
+        
+        パラメータ:
+            if1: 第一个IF
+            if2: 第二个IF
+            use_if1_as_denominator: True时使用if1的字段数作为分母，False时使用if2的字段数
+            
+        返回:
+            相似度值（0.0-1.0）
+        """
+        if not if1.field_pairs or not if2.field_pairs:
+            return 0.0
+        
+        # 计算共同字段对数量
+        common_pairs = if1.field_pairs & if2.field_pairs
+        common_count = len(common_pairs)
+        
+        # 根据参数选择分母
+        denominator = len(if1.field_pairs) if use_if1_as_denominator else len(if2.field_pairs)
+        
+        if denominator == 0:
+            return 0.0
+        
+        similarity = common_count / denominator
+        return max(0.0, min(1.0, similarity))
+    
     def export_similarity_matrix(
         self,
         if_dict: Dict[str, IFInfo],
@@ -21,7 +53,7 @@ class MatrixExporter:
         module_name: str = "",
         category_name: str = ""
     ):
-        """類似度マトリックスをExcelファイルとして出力（単一シート版）
+        """類似度マトリックスをExcelファイルとして出力（単一シート版、包含単向和双向两个矩阵）
         
         パラメータ:
             if_dict: IF名称からIFInfoへのマッピング
@@ -46,6 +78,7 @@ class MatrixExporter:
         # マトリックスデータを構築
         matrix_data = []
         
+        # ========== 第1個矩阵：単向（下三角のみ） ==========
         # ヘッダー行1: モジュール、業務内容
         header_row1 = ["モジュール", "業務内容"] + [""] * (len(if_names) - 1)
         matrix_data.append(header_row1)
@@ -62,7 +95,7 @@ class MatrixExporter:
         column_header = [""] + doc_numbers
         matrix_data.append(column_header)
         
-        # データ行: 各IFの類似度（行ヘッダーも文書管理番号）
+        # データ行: 各IFの類似度（行ヘッダーも文書管理番号）- 単向
         for i, if1 in enumerate(if_names):
             row = [if_dict[if1].doc_number]  # A列に文書管理番号
             for j, if2 in enumerate(if_names):
@@ -77,6 +110,58 @@ class MatrixExporter:
                     sim = similarity_dict.get((if1, if2), "")
                     if sim != "":
                         # 转换为百分比格式，保留1位小数
+                        percentage = round(sim * 100, 1)
+                        row.append(f"{percentage}%")
+                    else:
+                        row.append("")
+            matrix_data.append(row)
+        
+        # ========== 空行分隔 ==========
+        matrix_data.append([""] * (len(if_names) + 1))
+        matrix_data.append([""] * (len(if_names) + 1))
+        
+        # ========== 第2個矩阵：双向（上下三角都显示） ==========
+        # ヘッダー行1
+        header_row1_bi = ["モジュール（双方向）", "業務内容"] + [""] * (len(if_names) - 1)
+        matrix_data.append(header_row1_bi)
+        
+        # ヘッダー行2
+        header_row2_bi = [module_name, category_name] + [""] * (len(if_names) - 1)
+        matrix_data.append(header_row2_bi)
+        
+        # 空行
+        matrix_data.append([""] * (len(if_names) + 1))
+        
+        # 列ヘッダー行
+        column_header_bi = [""] + doc_numbers
+        matrix_data.append(column_header_bi)
+        
+        # データ行 - 双向（使用定向相似度）
+        for i, if1_name in enumerate(if_names):
+            row = [if_dict[if1_name].doc_number]
+            if1 = if_dict[if1_name]
+            
+            for j, if2_name in enumerate(if_names):
+                if i == j:
+                    row.append("-")
+                else:
+                    if2 = if_dict[if2_name]
+                    
+                    # 计算定向相似度
+                    if i < j:
+                        # 上三角：使用字段数较大的IF作为分母
+                        if len(if1.field_pairs) >= len(if2.field_pairs):
+                            sim = self._calculate_directional_similarity(if1, if2, use_if1_as_denominator=True)
+                        else:
+                            sim = self._calculate_directional_similarity(if1, if2, use_if1_as_denominator=False)
+                    else:
+                        # 下三角：使用字段数较小的IF作为分母
+                        if len(if1.field_pairs) <= len(if2.field_pairs):
+                            sim = self._calculate_directional_similarity(if1, if2, use_if1_as_denominator=True)
+                        else:
+                            sim = self._calculate_directional_similarity(if1, if2, use_if1_as_denominator=False)
+                    
+                    if sim > 0:
                         percentage = round(sim * 100, 1)
                         row.append(f"{percentage}%")
                     else:
@@ -138,16 +223,16 @@ class MatrixExporter:
         module_name: str,
         scenario: str
     ) -> pd.DataFrame:
-        """构建矩阵DataFrame
+        """构建矩阵DataFrame（包含单向和双向两个矩阵）
         
         パラメータ:
             if_dict: IF信息字典
-            similar_pairs: 相似度对列表
+            similar_pairs: 相似度对列表（使用min作为分母）
             module_name: 模块名
             scenario: 业务场景名
             
         返回:
-            矩阵DataFrame
+            矩阵DataFrame（包含两个矩阵：单向和双向）
         """
         # IF名のリストを取得（ソート済み）
         if_names = sorted(if_dict.keys())
@@ -155,7 +240,7 @@ class MatrixExporter:
         if not if_names:
             return pd.DataFrame()
         
-        # 類似度辞書を構築
+        # 類似度辞書を構築（使用min作为分母的相似度）
         similarity_dict = {}
         for if1, if2, sim in similar_pairs:
             similarity_dict[(if1, if2)] = sim
@@ -164,6 +249,7 @@ class MatrixExporter:
         # マトリックスデータを構築
         matrix_data = []
         
+        # ========== 第1個矩阵：単向（下三角のみ，使用min作为分母） ==========
         # ヘッダー行
         header_row1 = ["モジュール", "業務内容"] + [""] * (len(if_names) - 1)
         matrix_data.append(header_row1)
@@ -178,7 +264,7 @@ class MatrixExporter:
         column_header = [""] + doc_numbers
         matrix_data.append(column_header)
         
-        # データ行
+        # データ行（単向：下三角のみ）
         for i, if1 in enumerate(if_names):
             row = [if_dict[if1].doc_number]
             for j, if2 in enumerate(if_names):
@@ -189,6 +275,56 @@ class MatrixExporter:
                 else:
                     sim = similarity_dict.get((if1, if2), "")
                     if sim != "":
+                        percentage = round(sim * 100, 1)
+                        row.append(f"{percentage}%")
+                    else:
+                        row.append("")
+            matrix_data.append(row)
+        
+        # ========== 空行分隔 ==========
+        matrix_data.append([""] * (len(if_names) + 1))
+        matrix_data.append([""] * (len(if_names) + 1))
+        
+        # ========== 第2個矩阵：双向（使用定向相似度） ==========
+        # ヘッダー行
+        header_row1_bi = ["モジュール（双方向）", "業務内容"] + [""] * (len(if_names) - 1)
+        matrix_data.append(header_row1_bi)
+        
+        header_row2_bi = [module_name, scenario] + [""] * (len(if_names) - 1)
+        matrix_data.append(header_row2_bi)
+        
+        matrix_data.append([""] * (len(if_names) + 1))
+        
+        # 列ヘッダー: 文書管理番号
+        column_header_bi = [""] + doc_numbers
+        matrix_data.append(column_header_bi)
+        
+        # データ行（双向：使用定向相似度）
+        for i, if1_name in enumerate(if_names):
+            row = [if_dict[if1_name].doc_number]
+            if1 = if_dict[if1_name]
+            
+            for j, if2_name in enumerate(if_names):
+                if i == j:
+                    row.append("-")
+                else:
+                    if2 = if_dict[if2_name]
+                    
+                    # 计算定向相似度
+                    if i < j:
+                        # 上三角：使用字段数较大的IF作为分母
+                        if len(if1.field_pairs) >= len(if2.field_pairs):
+                            sim = self._calculate_directional_similarity(if1, if2, use_if1_as_denominator=True)
+                        else:
+                            sim = self._calculate_directional_similarity(if1, if2, use_if1_as_denominator=False)
+                    else:
+                        # 下三角：使用字段数较小的IF作为分母
+                        if len(if1.field_pairs) <= len(if2.field_pairs):
+                            sim = self._calculate_directional_similarity(if1, if2, use_if1_as_denominator=True)
+                        else:
+                            sim = self._calculate_directional_similarity(if1, if2, use_if1_as_denominator=False)
+                    
+                    if sim > 0:
                         percentage = round(sim * 100, 1)
                         row.append(f"{percentage}%")
                     else:
