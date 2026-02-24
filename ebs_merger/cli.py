@@ -21,7 +21,8 @@ class EBSMergerCLI:
         self,
         input_dir: str = "input",
         output_dir: str = "output",
-        threshold: float = 0.8
+        threshold: float = 0.8,
+        mode: str = "max"
     ):
         """初始化CLI配置
         
@@ -29,10 +30,13 @@ class EBSMergerCLI:
             input_dir: 输入文件夹路径
             output_dir: 输出文件夹路径
             threshold: 相似度阈值（默认0.8）
+            mode: 相似度算出方法
         """
         self.input_dir = Path(input_dir)
         self.output_dir = Path(output_dir)
         self.threshold = threshold
+        # 2026/02/18 田 追加          
+        self.mode = mode
         
         # 初始化组件（始终使用AI）
         self.loader = DataLoader()
@@ -60,6 +64,7 @@ class EBSMergerCLI:
             print(f"入力フォルダ：{self.input_dir}")
             print(f"出力フォルダ：{self.output_dir}")
             print(f"類似度閾値：{self.threshold * 100:.0f}%")
+            print(f"類似度計算モード：{self.mode}")
             print()
             
             # 查找所有Excel文件
@@ -205,11 +210,11 @@ class EBSMergerCLI:
             print(f"      {len(if_dict)} 個のIF, {len(df)} 行のデータ")
             
             # 計算相似度（用于分组，只包含超过阈值的）
-            similar_pairs = self.calculator.build_similarity_matrix(if_dict, self.threshold)
+            similar_pairs = self.calculator.build_similarity_matrix(if_dict, self.threshold, self.mode)
             print(f"      {len(similar_pairs)} 組の類似IFを発見しました")
             
             # 計算完整相似度（用于矩阵输出，包含所有IF对）
-            all_similarity_pairs = self.calculator.build_full_similarity_matrix(if_dict)
+            all_similarity_pairs = self.calculator.build_full_similarity_matrix(if_dict, self.mode)
             
             # 生成分組
             groups = self.merge_grouper.group_similar_ifs(if_dict, similar_pairs)

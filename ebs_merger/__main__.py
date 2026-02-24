@@ -19,6 +19,8 @@ def main():
     default_input_dir = os.getenv('INPUT_DIR', 'input')
     default_output_dir = os.getenv('OUTPUT_DIR', 'output')
     default_threshold = float(os.getenv('SIMILARITY_THRESHOLD', '0.8'))
+    # 2026/02/18 田 追加    
+    default_mode = os.getenv('SIMILARITY_MODE', 'max')
     
     parser = argparse.ArgumentParser(
         description='EBS設計書分析・マージツール - 一括処理版（AI使用）',
@@ -54,6 +56,12 @@ def main():
         default=default_threshold,
         help=f'類似度閾値、範囲0.0-1.0（デフォルト：{default_threshold}、.envで設定可能）'
     )
+    # 2026/02/18 田 追加        
+    parser.add_argument(
+        '--mode', '-m',
+        default=default_mode,
+        help=f'類似度算出モード、max or avg（デフォルト：{default_mode}、.envで設定可能）'
+    )    
     
     args = parser.parse_args()
     
@@ -66,7 +74,9 @@ def main():
     cli = EBSMergerCLI(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
-        threshold=args.threshold
+        threshold=args.threshold,
+     # 2026/02/18 田 追加 
+        mode=args.mode
     )
     
     exit_code = cli.run()
