@@ -26,7 +26,8 @@ class AIGenerator:
         client_secret: str = None,
         base_url: str = None,
         resource_group: str = "default",
-        deployment_id: str = None
+        deployment_id: str = None,
+        model_name: str = None
     ):
         """初始化AI生成器
         
@@ -37,6 +38,7 @@ class AIGenerator:
             base_url: SAP AI Core基础URL
             resource_group: 资源组名称
             deployment_id: Claude模型的deployment ID
+            model_name: モデル名（指定時はdeployment_idを動的取得）
         """
         # 从环境变量或参数获取配置
         self.auth_url = auth_url or os.getenv('AICORE_AUTH_URL')
@@ -44,8 +46,7 @@ class AIGenerator:
         self.client_secret = client_secret or os.getenv('AICORE_CLIENT_SECRET')
         self.base_url = base_url or os.getenv('AICORE_BASE_URL')
         self.resource_group = resource_group or os.getenv('AICORE_RESOURCE_GROUP', 'default')
-        # 使用Claude 4.5 Sonnet的deployment ID
-        self.deployment_id = deployment_id or os.getenv('AICORE_DEPLOYMENT_ID', 'd9eb209d94991674')
+        self.model_name = model_name or os.getenv('AICORE_MODEL_NAME')
         
         self.access_token = None
         
@@ -55,6 +56,93 @@ class AIGenerator:
                 "SAP AI Core設定が不足しています。環境変数または.envファイルで以下を設定してください：\n"
                 "AICORE_AUTH_URL, AICORE_CLIENT_ID, AICORE_CLIENT_SECRET, AICORE_BASE_URL"
             )
+        
+        # deployment_idの解決：モデル名指定時は動的取得、フォールバックは環境変数
+        if deployment_id:
+            self.deployment_id = deployment_id
+        elif self.model_name:
+            self.deployment_id = self._resolve_deployment_id(self.model_name)
+        else:
+            self.deployment_id = os.getenv('AICORE_DEPLOYMENT_ID')
+        
+        if not self.deployment_id:
+            raise ValueError(
+                "デプロイメントIDを取得できませんでした。AICORE_MODEL_NAMEまたはAICORE_DEPLOYMENT_IDを設定してください。"
+            )
+    
+    def _resolve_deployment_id(self, model_name: str) -> str:
+        """モデル名からデプロイメントIDを動的に取得
+        
+        SAP AI CoreのDeployment一覧APIを呼び出し、指定モデル名に一致する
+        RUNNINGステータスのデプロイメントIDを返す。
+        
+        パラメータ:
+            model_name: モデル名（例：claude-3.5-sonnet）
+            
+        戻り値:
+            デプロイメントID
+        """
+        try:
+            token = self._get_access_token()
+            
+            url = f"{self.base_url}/lm/deployments"
+            headers = {
+                'Authorization': f'Bearer {token}',
+                'AI-Resource-Group': self.resource_group,
+                'Content-Type': 'application/json'
+            }
+            params = {
+                'status': 'RUNNING'
+            }
+            
+            response = requests.get(url, headers=headers, params=params)
+            
+            if response.status_code != 200:
+                print(f"    警告：デプロイメント一覧の取得に失敗しました: {response.status_code}")
+                fallback_id = os.getenv('AICORE_DEPLOYMENT_ID')
+                if fallback_id:
+                    print(f"    フォールバック：AICORE_DEPLOYMENT_IDを使用します: {fallback_id}")
+                return fallback_id
+            
+            deployments = response.json().get('resources', [])
+            
+            # モデル名に一致するデプロイメントを検索
+            for deployment in deployments:
+                details = deployment.get('details', {})
+                resources = details.get('resources', {})
+                
+                # backendDetailsからモデル名を確認
+                backend_details = resources.get('backendDetails', {})
+                deployed_model = backend_details.get('model', {})
+                deployed_model_name = deployed_model.get('name', '')
+                deployed_model_version = deployed_model.get('version', '')
+                
+                # モデル名の一致判定（部分一致）
+                if model_name.lower() in deployed_model_name.lower() or \
+                   model_name.lower() in deployed_model_version.lower():
+                    deployment_id = deployment.get('id')
+                    print(f"    ✓ モデル '{model_name}' のデプロイメントを検出: {deployment_id}")
+                    return deployment_id
+                
+                # configurationのnameからも検索
+                config_name = deployment.get('configurationName', '')
+                if model_name.lower() in config_name.lower():
+                    deployment_id = deployment.get('id')
+                    print(f"    ✓ モデル '{model_name}' のデプロイメントを検出（設定名一致）: {deployment_id}")
+                    return deployment_id
+            
+            print(f"    警告：モデル '{model_name}' に一致するRUNNINGデプロイメントが見つかりません")
+            fallback_id = os.getenv('AICORE_DEPLOYMENT_ID')
+            if fallback_id:
+                print(f"    フォールバック：AICORE_DEPLOYMENT_IDを使用します: {fallback_id}")
+            return fallback_id
+            
+        except Exception as e:
+            print(f"    警告：デプロイメントIDの動的取得に失敗しました: {e}")
+            fallback_id = os.getenv('AICORE_DEPLOYMENT_ID')
+            if fallback_id:
+                print(f"    フォールバック：AICORE_DEPLOYMENT_IDを使用します: {fallback_id}")
+            return fallback_id
     
     def _get_access_token(self) -> str:
         """アクセストークンを取得"""
