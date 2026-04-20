@@ -115,8 +115,8 @@ class EBSMergerCLI:
             return []
         
         excel_files = []
-        # 支持.xlsx和.xls格式
-        for pattern in ['*.xlsx', '*.xls']:
+        # 支持.xlsx
+        for pattern in ['*.xlsx']:
             excel_files.extend(self.input_dir.glob(pattern))
         
         # 排除临时文件（以~$开头）
