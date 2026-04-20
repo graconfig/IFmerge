@@ -194,8 +194,9 @@ class EBSMergerCLI:
         返回:
             所有场景的输出行列表
         """
-        # 创建模块文件夹
-        module_dir = self.output_dir / module_name
+        # 创建模块文件夹（将模块名中的特殊字符替换为下划线，避免路径问题）
+        safe_module_name = module_name.replace('/', '_').replace('\\', '_').replace(':', '_')
+        module_dir = self.output_dir / safe_module_name
         module_dir.mkdir(parents=True, exist_ok=True)
         
         # 收集所有场景的数据
@@ -222,7 +223,7 @@ class EBSMergerCLI:
             # モジュール全体で連番のグルーピングIDを割り当て
             group_assignments = {}
             for group_members in groups.values():
-                formatted_id = f"{module_name}{module_group_id_counter:03d}"
+                formatted_id = f"{safe_module_name}{module_group_id_counter:03d}"
                 for if_name in group_members:
                     group_assignments[if_name] = formatted_id
                 module_group_id_counter += 1
@@ -250,7 +251,7 @@ class EBSMergerCLI:
             )
         
         # 输出相似度矩阵（模块级别，多sheet）
-        matrix_filename = f"類似度マトリックス_{module_name}.xlsx"
+        matrix_filename = f"類似度マトリックス_{safe_module_name}.xlsx"
         matrix_path = module_dir / matrix_filename
         self.matrix_exporter.export_module_matrices(
             module_matrix_data, str(matrix_path), module_name

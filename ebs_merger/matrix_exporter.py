@@ -187,8 +187,9 @@ class MatrixExporter:
         # 创建Excel writer
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             for scenario, (category_name, if_dict, similar_pairs) in module_data.items():
-                # Sheet名：モジュール_業務内容_類似度
-                sheet_name = f"{module_name}_{scenario}_類似度"
+                # Sheet名：モジュール_業務内容_類似度（特殊文字を除去）
+                safe_module = module_name.replace('/', '_').replace('\\', '_').replace(':', '_').replace('*', '_').replace('?', '_').replace('[', '_').replace(']', '_')
+                sheet_name = f"{safe_module}_{scenario}_類似度"
                 # Excel sheet名最大31字符
                 if len(sheet_name) > 31:
                     sheet_name = sheet_name[:31]
