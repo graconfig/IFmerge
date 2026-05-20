@@ -401,22 +401,28 @@ class AIGenerator:
             return group_members[0]
         
         # すべてのIFの情報を収集
-        if_info_list = []
+        if_info_lines = []
         for if_name in group_members:
             if_data = input_df[input_df['IF名'] == if_name]
             tables = if_data['EBSテーブル名'].unique().tolist()
-            if_info_list.append(f"- {if_name}（関連テーブル：{', '.join(tables[:3])}）")
-        
-        prompt = f"""以下のマージ対象インターフェース情報に基づいて、新しい簡潔な日本語インターフェース名を生成してください（20-40文字）：
+            if_info_lines.append(f"- {if_name}（関連テーブル：{', '.join(tables[:3])}）")
+        if_info_block = "\n".join(if_info_lines)
 
-{chr(10).join(if_info_list)}
-
-要件：
-1. 名前はすべてのインターフェースの共通機能を要約すること
-2. 日本語を使用すること
-3. 専門的かつ簡潔であること
-
-generate_merged_nameツールを使用して新しいインターフェース名を返してください。"""
+        prompt = self._prompt_config.get(
+            "generate_merged_if_name",
+            if_info_block=if_info_block,
+        )
+        if prompt is None:
+            prompt = (
+                "以下のマージ対象インターフェース情報に基づいて、"
+                "新しい簡潔な日本語インターフェース名を生成してください（20-40文字）：\n\n"
+                + if_info_block
+                + "\n\n要件：\n"
+                "1. 名前はすべてのインターフェースの共通機能を要約すること\n"
+                "2. 日本語を使用すること\n"
+                "3. 専門的かつ簡潔であること\n\n"
+                "generate_merged_nameツールを使用して新しいインターフェース名を返してください。"
+            )
         
         tools = [
             {
