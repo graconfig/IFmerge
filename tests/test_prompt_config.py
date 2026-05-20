@@ -41,3 +41,10 @@ def test_get_returns_none_on_invalid_yaml(tmp_path):
     yaml_file.write_text("key:\n  bad: : yaml:\n", encoding="utf-8")
     config = PromptConfig(str(yaml_file))
     assert config.get("key") is None
+
+
+def test_get_returns_none_on_non_dict_entry(tmp_path):
+    yaml_file = tmp_path / "prompts.yaml"
+    yaml_file.write_text("my_prompt: accidentally_a_string\n", encoding="utf-8")
+    config = PromptConfig(str(yaml_file))
+    assert config.get("my_prompt") is None

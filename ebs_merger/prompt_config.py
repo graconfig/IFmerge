@@ -36,13 +36,13 @@ class PromptConfig:
             格式化后的字符串，若模板不存在则返回 None
         """
         entry = self._templates.get(name)
-        if entry is None:
+        if not isinstance(entry, dict):
             return None
         template = entry.get("template")
         if not template:
             return None
         try:
             return template.format_map(kwargs)
-        except KeyError as e:
-            print(f"警告：プロンプト '{name}' のフォーマットに失敗しました（{e} が不足）")
+        except Exception as e:
+            print(f"警告：プロンプト '{name}' のフォーマットに失敗しました: {e}")
             return None
