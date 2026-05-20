@@ -26,17 +26,17 @@ class PromptConfig:
             print(f"警告：{path} の読み込みに失敗しました: {e}")
 
     def get(self, name: str, **kwargs) -> Optional[str]:
-        """指定プロンプトをテンプレートから取得してフォーマット。
+        """从模板中获取指定提示词并格式化。
 
-        Args:
-            name: プロンプト名（classify_interfaces など）
-            **kwargs: テンプレート内の占位符に渡す値
+        参数:
+            name: 提示词名称（如 classify_interfaces）
+            **kwargs: 传递给模板中占位符的值
 
-        Returns:
-            フォーマット済み文字列、またはテンプレートが無い場合は None
+        返回:
+            格式化后的字符串，若模板不存在则返回 None
         """
         entry = self._templates.get(name)
-        if not entry:
+        if entry is None:
             return None
         template = entry.get("template")
         if not template:
