@@ -11,6 +11,7 @@ import json
 from typing import Dict, List
 from dotenv import load_dotenv
 from ebs_merger.if_grouper import IFInfo
+from ebs_merger.prompt_config import PromptConfig
 
 # 加载.env文件
 load_dotenv()
@@ -69,6 +70,8 @@ class AIGenerator:
             raise ValueError(
                 "デプロイメントIDを取得できませんでした。AICORE_MODEL_NAMEまたはAICORE_DEPLOYMENT_IDを設定してください。"
             )
+
+        self._prompt_config = PromptConfig()
     
     def _resolve_deployment_id(self, model_name: str) -> str:
         """モデル名からデプロイメントIDを動的に取得
@@ -260,35 +263,41 @@ class AIGenerator:
                 'top_20_percent_count': max(1, int(if_info.item_count * 0.2))  # 20%的项目数
             })
         
-        # プロンプトの構築
-        prompt = f"""以下の{len(if_info_list)}個の日本語インターフェース（IF）の情報を分析し、各インターフェースの概要を生成し、代表項目名を選択してください。
-
-インターフェース情報：
-"""
+        # if_info_block の構築
+        if_info_lines = []
         for idx, info in enumerate(if_info_list, 1):
-            # 限制显示的项目数量，避免提示词过长
-            sample_items = info['items'][:20]  # 最多显示20个项目作为参考
-            prompt += f"""
-{idx}. IF名: {info['if_name']}
-   文書管理番号: {info['doc_number']}
-   関連テーブル: {', '.join(info['tables'])}
-   項目総数: {info['item_count']}
-   選択すべき代表項目数: {info['top_20_percent_count']}個（項目総数の約20%）
-   参考項目（最初の{len(sample_items)}個）: {', '.join(sample_items)}
-"""
-        
-        prompt += """
-提供されたツールを使用して、各インターフェースの情報を生成してください。要件：
+            sample_items = info['items'][:20]
+            if_info_lines.append(
+                f"\n{idx}. IF名: {info['if_name']}\n"
+                f"   文書管理番号: {info['doc_number']}\n"
+                f"   関連テーブル: {', '.join(info['tables'])}\n"
+                f"   項目総数: {info['item_count']}\n"
+                f"   選択すべき代表項目数: {info['top_20_percent_count']}個（項目総数の約20%）\n"
+                f"   参考項目（最初の{len(sample_items)}個）: {', '.join(sample_items)}\n"
+            )
+        if_info_block = "".join(if_info_lines)
 
-1. IF概要：日本語で簡潔な機能説明を生成（30-50文字）、インターフェースの主な機能と用途を要約
-
-2. 代表項目名：各インターフェースの項目総数の約20%に相当する代表的な項目名を選択してください。選択基準：
-   ① SAP系統における重要性：項目名がSAPシステムで一般的に使用されるキー項目（例：伝票番号、品目コード、顧客コード、注文番号、会計年度、会社コード、プラントコード、在庫組織、勘定科目など）であるかを優先的に考慮
-   ② 業務シナリオとの関連性：IF名から推測される業務シナリオにおいて、最も代表的で重要な項目を選択（例：「出荷指示」というIF名の場合、出荷関連の項目を優先）
-   
-   選択した項目名をカンマで区切って返してください（例：項目総数が50個の場合、約10個の項目名を選択）
-
-generate_all_if_infoツールを呼び出して、すべてのインターフェースの情報を一度に返してください。"""
+        prompt = self._prompt_config.get(
+            "generate_all_if_info",
+            count=len(if_info_list),
+            if_info_block=if_info_block,
+        )
+        if prompt is None:
+            prompt = (
+                f"以下の{len(if_info_list)}個の日本語インターフェース（IF）の情報を分析し、"
+                "各インターフェースの概要を生成し、代表項目名を選択してください。\n\n"
+                "インターフェース情報：\n"
+                + if_info_block
+                + "\n提供されたツールを使用して、各インターフェースの情報を生成してください。要件：\n\n"
+                "1. IF概要：日本語で簡潔な機能説明を生成（30-50文字）、インターフェースの主な機能と用途を要約\n\n"
+                "2. 代表項目名：各インターフェースの項目総数の約20%に相当する代表的な項目名を選択してください。選択基準：\n"
+                "   ① SAP系統における重要性：項目名がSAPシステムで一般的に使用されるキー項目"
+                "（例：伝票番号、品目コード、顧客コード、注文番号、会計年度、会社コード、プラントコード、在庫組織、勘定科目など）であるかを優先的に考慮\n"
+                "   ② 業務シナリオとの関連性：IF名から推測される業務シナリオにおいて、最も代表的で重要な項目を選択"
+                "（例：「出荷指示」というIF名の場合、出荷関連の項目を優先）\n\n"
+                "   選択した項目名をカンマで区切って返してください（例：項目総数が50個の場合、約10個の項目名を選択）\n\n"
+                "generate_all_if_infoツールを呼び出して、すべてのインターフェースの情報を一度に返してください。"
+            )
         
         # ツールの定義 - すべてのIF情報を一度に返すように変更
         tools = [
