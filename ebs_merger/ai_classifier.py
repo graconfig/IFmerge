@@ -7,6 +7,7 @@ import pandas as pd
 from typing import Dict, List, Tuple
 from pathlib import Path
 from ebs_merger.ai_generator import AIGenerator
+from ebs_merger.prompt_config import PromptConfig
 from ebs_merger.if_grouper import IFInfo
 
 
@@ -20,6 +21,7 @@ class AIClassifier:
             ai_generator: AI生成器实例（可选）
         """
         self.ai_generator = ai_generator or AIGenerator()
+        self._prompt_config = PromptConfig()
     
     def classify_interfaces(
         self,
@@ -51,33 +53,41 @@ class AIClassifier:
                 'item_count': if_info.item_count
             })
         
-        # プロンプトの構築
-        prompt = f"""以下の{len(if_info_list)}個の日本語インターフェース（IF）を分析し、SAPモジュールと業務シナリオに基づいてグループ化してください。
-
-インターフェース情報：
-"""
+        # if_info_block の構築（設定テンプレートとハードコードの両方で共通）
+        if_info_lines = []
         for idx, info in enumerate(if_info_list, 1):
-            prompt += f"""
-{idx}. IF名: {info['if_name']}
-   文書管理番号: {info['doc_number']}
-   関連テーブル: {', '.join(info['tables'])}
-   項目総数: {info['item_count']}
-   サンプル項目: {', '.join(info['items'][:5])}
-"""
-        
-        prompt += """
-以下の観点でインターフェースをグループ化してください：
-1. SAPモジュール（例：SD、MM、PP、WM、FI、CO、HRなど）
-2. 業務シナリオ（例：受注処理、在庫管理、出荷管理、購買管理など）
+            if_info_lines.append(
+                f"\n{idx}. IF名: {info['if_name']}\n"
+                f"   文書管理番号: {info['doc_number']}\n"
+                f"   関連テーブル: {', '.join(info['tables'])}\n"
+                f"   項目総数: {info['item_count']}\n"
+                f"   サンプル項目: {', '.join(info['items'][:5])}\n"
+            )
+        if_info_block = "".join(if_info_lines)
 
-グループ化要件：
-- 各インターフェースは1つのグループにのみ属する
-- SAPモジュールと業務シナリオを別々のフィールドで指定
-- **モジュール名は必ず単一のSAPモジュールコードのみを指定すること（例：「SD」「MM」「WM」）。複数モジュールの組み合わせ（例：「SD/WM」「SD_WM」）は絶対に使用しないこと**
-- インターフェースが複数モジュールにまたがる場合は、最も主要なモジュールを1つ選択すること
-- 明確に分類できない場合は、module: "その他"、scenario: "未分類"を使用
-
-classify_interfacesツールを使用して分類結果を返してください。"""
+        prompt = self._prompt_config.get(
+            "classify_interfaces",
+            count=len(if_info_list),
+            if_info_block=if_info_block,
+        )
+        if prompt is None:
+            prompt = (
+                f"以下の{len(if_info_list)}個の日本語インターフェース（IF）を分析し、"
+                "SAPモジュールと業務シナリオに基づいてグループ化してください。\n\n"
+                "インターフェース情報：\n"
+                + if_info_block
+                + "\n以下の観点でインターフェースをグループ化してください：\n"
+                "1. SAPモジュール（例：SD、MM、PP、WM、FI、CO、HRなど）\n"
+                "2. 業務シナリオ（例：受注処理、在庫管理、出荷管理、購買管理など）\n\n"
+                "グループ化要件：\n"
+                "- 各インターフェースは1つのグループにのみ属する\n"
+                "- SAPモジュールと業務シナリオを別々のフィールドで指定\n"
+                "- **モジュール名は必ず単一のSAPモジュールコードのみを指定すること"
+                "（例：「SD」「MM」「WM」）。複数モジュールの組み合わせ（例：「SD/WM」「SD_WM」）は絶対に使用しないこと**\n"
+                "- インターフェースが複数モジュールにまたがる場合は、最も主要なモジュールを1つ選択すること\n"
+                "- 明確に分類できない場合は、module: \"その他\"、scenario: \"未分類\"を使用\n\n"
+                "classify_interfacesツールを使用して分類結果を返してください。"
+            )
         
         # 定义工具
         tools = [
