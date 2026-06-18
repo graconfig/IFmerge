@@ -23,6 +23,9 @@ from ifmerge_gui.i18n import t
 
 logger = logging.getLogger("ifmerge_gui.ui.tasks.merge")
 
+_SEP = "=" * 60
+_SUBSEP = "-" * 60
+
 _COLUMNS = ["No.", "文書管理番号", "IF名", "モジュール", "業務内容", "項目数",
             "IF概要", "代表項目名", "グルーピングID", "マージ要否",
             "グルーピング後のIF名", "グルーピングの根拠"]
@@ -67,23 +70,49 @@ class MergeTask(threading.Thread):
             self.classifier = AIClassifier(ai_generator=gen)
 
             total = len(self.files)
+            # 批处理头部(镜像 cli.py run())
+            self.on_log(_SEP)
+            self.on_log(t("log.batch_start"))
+            self.on_log(_SEP)
+            self.on_log(t("log.batch_threshold", pct=f"{self.threshold * 100:.0f}"))
+            self.on_log(t("log.batch_mode", mode=self.mode))
+            self.on_log(t("log.batch_output", dir=self.output_dir))
+            self.on_log(t("log.batch_files", n=total))
+
+            success_count = 0
+            fail_count = 0
             for idx, input_file in enumerate(self.files, 1):
                 if self._cancel:
                     self.on_log(t("log.cancelled"))
                     break
                 base = int((idx - 1) / total * 100) if total else 0
                 self.on_progress(base, f"[{idx}/{total}] " + t("phase.read"))
-                self.on_log(t("log.start_file", name=input_file.name))
+                self.on_log(t("log.file_header", idx=idx, total=total,
+                              name=input_file.name))
+                self.on_log(_SUBSEP)
                 try:
                     self._process_file(input_file, base, idx, total)
-                    self.on_log(t("log.file_done", name=input_file.name))
+                    success_count += 1
+                    self.on_log(t("log.file_done"))
                 except Exception as e:
+                    fail_count += 1
                     logger.exception("merge file failed")
-                    self.on_log(t("log.file_fail", name=input_file.name, error=e))
+                    self.on_log(t("log.file_fail", error=e))
 
             if self._cancel:
                 self.on_done(None)
                 return
+
+            # 批处理汇总(镜像 cli.py print_batch_summary())
+            self.on_log(_SEP)
+            self.on_log(t("log.batch_done"))
+            self.on_log(_SEP)
+            self.on_log(t("log.batch_summary_total", total=total))
+            self.on_log(t("log.batch_summary_ok", ok=success_count))
+            self.on_log(t("log.batch_summary_fail", fail=fail_count))
+            self.on_log(t("log.batch_output", dir=self.output_dir))
+            self.on_log(_SEP)
+
             self.on_progress(100, t("phase.done"))
             self.on_done(None)
         except Exception as e:
@@ -94,24 +123,29 @@ class MergeTask(threading.Thread):
         out_dir = self.output_dir / input_file.stem
         out_dir.mkdir(parents=True, exist_ok=True)
 
+        self.on_log(t("log.loading"))
         df = self.loader.load_excel(str(input_file))
-        self.on_log(t("log.loaded", name=input_file.name, rows=len(df)))
+        self.on_log(t("log.loaded", rows=len(df)))
 
         self.on_progress(base, f"[{idx}/{total}] " + t("phase.group"))
+        self.on_log(t("log.grouping_start"))
         if_dict = self.grouper.group_by_if(df)
         self.on_log(t("log.if_found", n=len(if_dict)))
 
         self.on_progress(base, f"[{idx}/{total}] " + t("phase.classify"))
+        self.on_log(t("log.classifying"))
         categories = self.classifier.classify_interfaces(if_dict, df)
         self.on_log(t("log.classified", n=len(categories)))
 
         # 按模块组织:{module: {scenario: (category_name, if_dict, df)}}
+        self.on_log(t("log.organizing"))
         module_data = defaultdict(dict)
         for category_name, (module, scenario, if_names) in categories.items():
             cat_if_dict = {n: if_dict[n] for n in if_names if n in if_dict}
             cat_df = df[df["IF名"].isin(if_names)]
             module_data[module][scenario] = (category_name, cat_if_dict, cat_df)
 
+        self.on_log(t("log.merging_start"))
         all_rows = []
         for module_name, scenarios in module_data.items():
             if self._cancel:
@@ -125,7 +159,7 @@ class MergeTask(threading.Thread):
         path = out_dir / "グルーピング結果.xlsx"
         pd.DataFrame(all_rows)[_COLUMNS].to_excel(
             path, index=False, engine="openpyxl")
-        self.on_log(t("log.grouping_ok", path=path))
+        self.on_log(t("log.grouping_ok", path=path.name))
 
     def _process_module(self, module_name, scenarios, out_dir, base, idx, total):
         safe = module_name.replace("/", "_").replace("\\", "_").replace(":", "_")
@@ -140,8 +174,8 @@ class MergeTask(threading.Thread):
             if self._cancel:
                 return all_module_rows
             self.on_progress(base, f"[{idx}/{total}] " + t("phase.similarity"))
-            self.on_log(t("log.scenario", scenario=scenario,
-                          ifs=len(if_dict), rows=len(df)))
+            self.on_log(t("log.scenario", scenario=scenario))
+            self.on_log(t("log.scenario_stats", ifs=len(if_dict), rows=len(df)))
             similar_pairs = self.calc.build_similarity_matrix(
                 if_dict, self.threshold, self.mode)
             self.on_log(t("log.similar_pairs", n=len(similar_pairs)))
@@ -171,13 +205,12 @@ class MergeTask(threading.Thread):
             self.template_filler.fill_merged_groups(
                 if_dict, group_assignments, similar_pairs, df,
                 str(module_dir), merged_if_names)
-            self.on_log(t("log.template_ok", module=module_name))
 
         self.on_progress(base, f"[{idx}/{total}] " + t("phase.matrix"))
         matrix_path = module_dir / f"類似度マトリックス_{safe}.xlsx"
         self.matrix_exporter.export_module_matrices(
             module_matrix_data, str(matrix_path), module_name)
-        self.on_log(t("log.matrix_ok", path=matrix_path))
+        self.on_log(t("log.matrix_ok", path=matrix_path.name))
         return all_module_rows
 
     def _generate_output_rows(self, if_dict, group_assignments, similar_pairs,

@@ -66,10 +66,10 @@ class AnalyzeTask(threading.Thread):
                     rows = self._process_file(input_file, base, idx, total,
                                               gen, loader, grouper, classifier)
                     all_rows.extend(rows)
-                    self.on_log(t("log.file_done", name=input_file.name))
+                    self.on_log(t("log.file_done"))
                 except Exception as e:
                     logger.exception("analyze file failed")
-                    self.on_log(t("log.file_fail", name=input_file.name, error=e))
+                    self.on_log(t("log.file_fail", error=e))
 
             if self._cancel:
                 self.on_done(None)
@@ -91,7 +91,7 @@ class AnalyzeTask(threading.Thread):
 
     def _process_file(self, input_file, base, idx, total, gen, loader, grouper, classifier):
         df = loader.load_excel(str(input_file))
-        self.on_log(t("log.loaded", name=input_file.name, rows=len(df)))
+        self.on_log(t("log.loaded", rows=len(df)))
 
         self.on_progress(base, f"[{idx}/{total}] " + t("phase.group"))
         if_dict = grouper.group_by_if(df)
