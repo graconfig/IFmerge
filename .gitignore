@@ -4,5 +4,8 @@ output/
 ALGORITHM_DESCRIPTION_CN.md
 ALGORITHM_DESCRIPTION.md
 ebs_merger/__pycache__/
+__pycache__/
+*.pyc
+.idea/
 DESIGN.md
 CHANGELOG.md
