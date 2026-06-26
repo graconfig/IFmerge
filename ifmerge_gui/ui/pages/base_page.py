@@ -6,6 +6,7 @@ from typing import List
 
 import customtkinter as ctk
 
+from ifmerge_gui.core.error_text import localize_error
 from ifmerge_gui.i18n import t
 from ifmerge_gui.ui.widgets.file_input import FileInput
 from ifmerge_gui.ui.widgets.file_output import FileOutput
@@ -109,7 +110,7 @@ class BasePage(ctk.CTkFrame):
     def _cb_failed(self, exc: Exception):
         def fail():
             self.progress_log.set_failed()
-            msg = t("log.failed", type=type(exc).__name__, error=exc)
+            msg = t("log.failed", type=type(exc).__name__, error=localize_error(exc))
             self._log_lines.append(msg)
             self.progress_log.append_log(msg)
             self._save_log()

@@ -19,6 +19,7 @@ from ebs_merger.template_filler import TemplateFiller
 
 from ifmerge_gui.config.settings import Settings
 from ifmerge_gui.core.ai_factory import build_ai_generator
+from ifmerge_gui.core.error_text import localize_error
 from ifmerge_gui.i18n import t
 
 logger = logging.getLogger("ifmerge_gui.ui.tasks.merge")
@@ -97,7 +98,7 @@ class MergeTask(threading.Thread):
                 except Exception as e:
                     fail_count += 1
                     logger.exception("merge file failed")
-                    self.on_log(t("log.file_fail", error=e))
+                    self.on_log(t("log.file_fail", error=localize_error(e)))
 
             if self._cancel:
                 self.on_done(None)
