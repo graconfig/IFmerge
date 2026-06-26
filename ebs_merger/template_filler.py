@@ -9,18 +9,22 @@ from typing import Dict, List, Tuple
 from datetime import datetime
 from openpyxl import load_workbook
 from ebs_merger.if_grouper import IFInfo
+from ebs_merger.runtime import resource_path
 
 
 class TemplateFiller:
     """模板填充器"""
-    
-    def __init__(self, template_path: str = "template/IF_Template.xlsm"):
+
+    def __init__(self, template_path: str = None):
         """初始化模板填充器
-        
+
         参数:
-            template_path: 模板文件路径
+            template_path: 模板文件路径。为 None 时解析打包/开发态下的默认模板
+                （支持 PyInstaller）。
         """
-        self.template_path = Path(template_path)
+        self.template_path = (
+            Path(template_path) if template_path is not None
+            else resource_path("template", "IF_Template.xlsm"))
     
     def fill_merged_groups(
         self,

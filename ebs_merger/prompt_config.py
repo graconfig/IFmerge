@@ -7,6 +7,8 @@ from typing import Optional
 
 import yaml
 
+from ebs_merger.runtime import resource_path
+
 
 class PromptConfig:
     """从 YAML 文件加载 AI 提示词模板，支持占位符格式化。
@@ -14,16 +16,17 @@ class PromptConfig:
     文件不存在或条目缺失时，get() 返回 None，由调用方回退到硬编码。
     """
 
-    def __init__(self, path: str = "prompts.yaml") -> None:
+    def __init__(self, path: Optional[str] = None) -> None:
         self._templates: dict = {}
-        config_path = Path(path)
+        # path 为 None 时解析打包/开发态下的默认 prompts.yaml(支持 PyInstaller)。
+        config_path = Path(path) if path is not None else resource_path("prompts.yaml")
         if not config_path.exists():
             return
         try:
             with open(config_path, encoding="utf-8") as f:
                 self._templates = yaml.safe_load(f) or {}
         except Exception as e:
-            print(f"警告：{path} の読み込みに失敗しました: {e}")
+            print(f"警告：{config_path} の読み込みに失敗しました: {e}")
 
     def get(self, name: str, **kwargs) -> Optional[str]:
         """从模板中获取指定提示词并格式化。
