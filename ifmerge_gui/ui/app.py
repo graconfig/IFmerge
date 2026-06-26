@@ -64,7 +64,9 @@ class IFMergeApp(ctk.CTk):
         SettingsDialog(self, self.settings, on_saved=self._on_settings_saved)
 
     def _on_settings_saved(self, settings: Settings):
-        self.settings = settings
-        self.settings.save()                            # 持久化到 .env
+        settings.save()                                 # 持久化到 .env(并同步 os.environ)
+        # 重新加载:等效于重启,使内存配置与 .env 完全一致——包括对话框未覆盖、
+        # 仅存在于 .env 的项(如 AICORE_MODEL_NAME)。否则保存后需重启才生效。
+        self.settings = Settings.load()
         setup_logger(level=self.settings.log_level)      # 日志级别即时生效
         self.page.file_output.set_output_dir(self.page.output_dir())

@@ -81,4 +81,7 @@ class Settings:
         }
         for key, value in pairs.items():
             set_key(path, key, value or "")
+            # 同步到当前进程环境:ebs_merger 通过 os.getenv 回退读取配置,
+            # 不同步会导致保存后到重启前仍读到启动时的旧值。
+            os.environ[key] = value or ""
         return path
